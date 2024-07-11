@@ -146,7 +146,7 @@ const Login = () => {
           if (connectedTable !== tableNumber) {
             formik.setFieldValue('tableName', tableNumber);
             setConnectedTable(tableNumber);
-            toast.success(`Bluetooth device '${deviceName}' found and TableName set to ${tableNumber}`);
+            
             setTimeout(() => setConnectedTable(null), 30000); // Reset connectedTable after 30 seconds
           }
         }
