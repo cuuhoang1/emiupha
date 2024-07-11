@@ -123,20 +123,21 @@ const Login = () => {
       toast.error("Bluetooth is not supported on this device.");
       return;
     }
-
+  
     setIsScanning(true);
-
+  
     try {
       const device = await navigator.bluetooth.requestDevice({
         acceptAllDevices: true,
         optionalServices: ['battery_service', 'generic_access'],
       });
-
+  
       device.addEventListener('gattserverdisconnected', () => {
         console.log('Device disconnected');
         setIsScanning(false);
+        setConnectedTable(null); // Reset connectedTable when device disconnects
       });
-
+  
       device.addEventListener('advertisementreceived', (event) => {
         const deviceName = event.device.name || 'Unknown Device';
         const tableMatch = deviceName.match(/^Bàn (\d+)$/);
@@ -145,22 +146,21 @@ const Login = () => {
           if (connectedTable !== tableNumber) {
             formik.setFieldValue('tableName', tableNumber);
             setConnectedTable(tableNumber);
-            // toast.success(`Bluetooth device '${deviceName}' found and TableName set to ${tableNumber}`);
-            setTimeout(() => setConnectedTable(null), 30000); // reset connectedTable after 30 seconds
+            toast.success(`Bluetooth device '${deviceName}' found and TableName set to ${tableNumber}`);
+            setTimeout(() => setConnectedTable(null), 30000); // Reset connectedTable after 30 seconds
           }
-          device.gatt.disconnect();
-          setIsScanning(false);
         }
       });
-
+  
       await device.watchAdvertisements();
     } catch (error) {
       console.error('BLE scanning failed: ', error);
       toast.error("BLE scanning failed. Please try again.");
-      setIsScanning(false);
+    } finally {
+      setIsScanning(false); // Ensure setIsScanning is set to false after scanning completes
     }
   };
-
+  
   const inputs = [
     {
       id: 1,
