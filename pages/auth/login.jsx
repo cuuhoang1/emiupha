@@ -1,9 +1,8 @@
 import { useFormik } from "formik";
-import Link from "next/link";
 import Input from "../../components/form/Input";
 import Title from "../../components/ui/Title";
 import { loginSchema } from "../../schema/login";
-import { getSession, signIn, signOut, useSession } from "next-auth/react";
+import { getSession, signIn, useSession } from "next-auth/react";
 import { useRouter } from "next/router";
 import { toast } from "react-toastify";
 import { useEffect, useState } from "react";
@@ -14,14 +13,15 @@ const Login = () => {
   const { data: session } = useSession();
   const [currentUser, setCurrentUser] = useState();
   const [nfcSupported, setNfcSupported] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [connectedTable, setConnectedTable] = useState(null);
 
-  // Hàm xử lý khi người dùng nhấn nút đăng nhập
   const onSubmit = async (values, actions) => {
     const { fullName, tableName } = values;
     let options = { redirect: false, fullName, tableName };
     try {
       const res = await signIn("credentials", options);
-      console.log("Sign in response:", res); // Debug log
+      console.log("Sign in response:", res);
 
       if (res.error) {
         throw new Error(res.error);
@@ -34,9 +34,8 @@ const Login = () => {
       });
 
       if (res.ok) {
-        // Fetch user data after successful login
         const userResponse = await axios.get('/api/auth/session');
-        console.log("User session data:", userResponse.data); // Debug log
+        console.log("User session data:", userResponse.data);
 
         if (userResponse.data.user && userResponse.data.user.id) {
           push("/profile/" + userResponse.data.user.id);
@@ -49,12 +48,11 @@ const Login = () => {
         toast.error("Login process completed, but encountered an issue");
       }
     } catch (err) {
-      console.error("Login error:", err); // Debug log
+      console.error("Login error:", err);
       toast.error(err.message || "An error occurred during login");
     }
   };
 
-  // Cấu hình formik cho form đăng nhập
   const formik = useFormik({
     initialValues: {
       fullName: "",
@@ -64,7 +62,6 @@ const Login = () => {
     validationSchema: loginSchema,
   });
 
-  // Hàm xử lý trạng thái người dùng và chuyển hướng nếu đã đăng nhập
   useEffect(() => {
     const getUser = async () => {
       try {
@@ -82,7 +79,6 @@ const Login = () => {
     getUser();
   }, [session, push, currentUser]);
 
-  // Kiểm tra hỗ trợ NFC và cấu hình quét NFC
   useEffect(() => {
     if ('NDEFReader' in window) {
       setNfcSupported(true);
@@ -92,7 +88,6 @@ const Login = () => {
     }
   }, []);
 
-  // Hàm bắt đầu quét NFC khi người dùng nhấn nút
   const startNfcScan = async () => {
     if (!nfcSupported) {
       toast.error("NFC is not supported on this device.");
@@ -123,28 +118,49 @@ const Login = () => {
     }
   };
 
-  // Hàm xử lý đăng xuất người dùng
-  const onLogout = async () => {
+  const startBleScan = async () => {
+    if (!navigator.bluetooth) {
+      toast.error("Bluetooth is not supported on this device.");
+      return;
+    }
+
+    setIsScanning(true);
+
     try {
-      await signOut({ redirect: false });
-      await fetch("/api/auth/logout", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ tableName: formik.values.tableName }),
+      const device = await navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: ['battery_service', 'generic_access'],
       });
-      toast.success("Logout successfully", {
-        position: "bottom-left",
-        theme: "colored",
+
+      device.addEventListener('gattserverdisconnected', () => {
+        console.log('Device disconnected');
+        setIsScanning(false);
       });
-      push("/auth/login");
-    } catch (err) {
-      toast.error(err.message);
+
+      device.addEventListener('advertisementreceived', (event) => {
+        const deviceName = event.device.name || 'Unknown Device';
+        const tableMatch = deviceName.match(/^Bàn (\d+)$/);
+        if (tableMatch) {
+          const tableNumber = tableMatch[1];
+          if (connectedTable !== tableNumber) {
+            formik.setFieldValue('tableName', tableNumber);
+            setConnectedTable(tableNumber);
+            // toast.success(`Bluetooth device '${deviceName}' found and TableName set to ${tableNumber}`);
+            setTimeout(() => setConnectedTable(null), 30000); // reset connectedTable after 30 seconds
+          }
+          device.gatt.disconnect();
+          setIsScanning(false);
+        }
+      });
+
+      await device.watchAdvertisements();
+    } catch (error) {
+      console.error('BLE scanning failed: ', error);
+      toast.error("BLE scanning failed. Please try again.");
+      setIsScanning(false);
     }
   };
 
-  // Cấu hình các trường input cho form
   const inputs = [
     {
       id: 1,
@@ -159,11 +175,10 @@ const Login = () => {
       id: 2,
       name: "tableName",
       type: "text",
-      placeholder: formik.values.tableName ? "" : "Vui lòng quét NFC trên bàn",
+      placeholder:"Vui lòng quét NFC trên bàn",
       value: formik.values.tableName,
       errorMessage: formik.errors.tableName,
       touched: formik.touched.tableName,
-      // disabled: flase, // Thêm thuộc tính disabled vào đây
     },
   ];
 
@@ -188,13 +203,7 @@ const Login = () => {
           <button className="btn-primary" type="submit">
             LOGIN
           </button>
-          <button
-            className="btn-primary !bg-secondary"
-            type="button"
-            onClick={onLogout}
-          >
-            LOGOUT
-          </button>
+          
           <button
             className="btn-primary !bg-secondary"
             type="button"
@@ -202,13 +211,20 @@ const Login = () => {
           >
             Bật NFC Để Quét
           </button>
+          <button
+            className="btn-primary !bg-secondary"
+            type="button"
+            onClick={startBleScan}
+            disabled={isScanning}
+          >
+            {isScanning ? "Đang quét..." : "Quét BLE"}
+          </button>
         </div>
       </form>
     </div>
   );
 };
 
-// Hàm lấy dữ liệu của người dùng từ server và chuyển hướng nếu đã đăng nhập
 export async function getServerSideProps({ req }) {
   const session = await getSession({ req });
 
